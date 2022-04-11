@@ -418,7 +418,7 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
     let followerid : i32=q.0.follower.parse().unwrap();
     let followedid : i32=q.0.followed.parse().unwrap();
-    let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followerid))
+    let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
         .fetch_one(&pool)
         .await
         .unwrap()
