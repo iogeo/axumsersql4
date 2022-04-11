@@ -153,6 +153,8 @@ async fn main() {
         .route(
         "/deleteuser", get(deleteuserq).post(deleteuser))
         .route(
+        "/deleteallusers", get(deleteallusers))
+        .route(
         "/followuser", get(followuserq).post(followuser))
         .layer(Extension(pool));
     let q = env::var("PORT")
@@ -212,7 +214,7 @@ async fn makedummyuser(
     let username2="'ab'";
     let full_name2="'abcd'";
     let bio2="'abcdabcdqw'";
-    sqlx::Executor::execute(&pool, &format!("INSERT INTO users (username, full_name, created_at, bio) VALUES ({}, {}, 'now', {})", username2, full_name2, bio2)[..]).await.unwrap();
+    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers) VALUES ({}, {}, 'now', {}, {})"#, username2, full_name2, bio2, "'{987878}'")[..]).await.unwrap();
     response()
         .await.status(200)
         .body(Full::from("Done".to_string()))
@@ -242,6 +244,20 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         r+=&w.to_string();
         r+=",";
         r+=s[p].get(4);
+        r+=" Followed by: ";
+        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+        let mut w=0;
+        w+=1;
+        while w<s.len()
+        {
+            r+=&s[w].to_string();
+            r+=" ";
+            w+=1;
+        }
         r+="\r\n";
         p+=1;
     }
@@ -290,7 +306,7 @@ async fn accept_form(q: Form<User>, Extension(pool): Extension<PgPool>,
     let username=q.0.username;
     let full_name=q.0.full_name;
     let bio=q.0.bio;
-    sqlx::Executor::execute(&pool, &format!("INSERT INTO users (username, full_name, created_at, bio) VALUES ('{}', '{}', 'now', '{}')", username, full_name, bio)[..]).await.unwrap();
+    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers) VALUES ('{}', '{}', 'now', '{}', {})"#, username, full_name, bio, "'{987878}'")[..]).await.unwrap();
     response()
         .await.status(200)
         .body(Full::from(r#"
@@ -440,7 +456,7 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
         r+=1;
     }
     sm+="}'";
-    sm+=&format!(" WHERE ID = {}", followerid);
+    sm+=&format!(" WHERE ID = {}", followedid);
     println!("{}", sm);
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
     response()
@@ -461,6 +477,23 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
                     </label></p>
                     <p><input type="submit" value="Follow/Unfollow"></p>
                 </form>
+            </body>
+        </html>
+        "#.to_string()))
+        .unwrap()
+}
+async fn deleteallusers(Extension(pool): Extension<PgPool>,
+) -> impl IntoResponse{
+    sqlx::Executor::execute(&pool, &format!("DELETE  FROM users")[..]).await.unwrap();
+    response()
+        .await.status(200)
+        .body(Full::from(r#"
+        <!doctype html>
+        <html>
+            <head></head>
+            <body>
+                Done.
+                <p><a href=/>Index</a></p>
             </body>
         </html>
         "#.to_string()))
