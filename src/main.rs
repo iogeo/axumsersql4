@@ -439,7 +439,7 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
     {
         s.drain(w..w+1);
     }
-    else
+    else if followerid!=followedid
     {
         s.push(followerid);
     }
