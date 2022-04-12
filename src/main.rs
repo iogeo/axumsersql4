@@ -230,9 +230,10 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     let mut p=0;
     let mut q : i32=0;
     let mut r=String::new();
-    r+="ID,username,full_name,created_at,bio\r\n";
+    r+="<html><head></head><body><p>ID,username,full_name,created_at,bio\r\n</p>";
     while p<s.len()
     {
+        r+="<p>";
         q=s[p].get(0);
         r+=&q.to_string();
         r+=",";
@@ -245,20 +246,22 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         r+=",";
         r+=s[p].get(4);
         r+=" Followed by: ";
-        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
-        .fetch_one(&pool)
+        let mut s : Vec<Vec<i32>>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
+        .fetch_all(&pool)
         .await
         .unwrap()
         .get(0);
         let mut w=0;
-        w+=1;
-        while w<s.len()
+        if(s.len()>0)
         {
-            r+=&s[w].to_string();
-            r+=" ";
-            w+=1;
+          while w<s[0].len()
+          {
+             r+=&s[0][w].to_string();
+             r+=" ";
+             w+=1;
+          }
         }
-        r+="\r\n";
+        r+="\r\n</p>";
         p+=1;
     }
     response()
