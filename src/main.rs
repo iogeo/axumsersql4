@@ -238,14 +238,14 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         r+=&q.to_string();
         r+=" Username: ";
         r+=s[p].get(1);
-        r+=" Full name: ";
+        r+="| Full name: ";
         r+=s[p].get(2);
-        r+=" Created_at: ";
+        r+="| Created_at: ";
         let w : sqlx::types::chrono::NaiveDateTime=s[p].get(3);
         r+=&w.to_string();
-        r+=" Bio: ";
+        r+="| Bio: ";
         r+=s[p].get(4);
-        r+=" Followers: ";
+        r+="| Followers: ";
         let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
         .fetch_one(&pool)
         .await
