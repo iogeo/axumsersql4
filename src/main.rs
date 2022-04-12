@@ -223,7 +223,7 @@ async fn makedummyuser(
 
 async fn getusers(Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
-    let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users")
+    let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users ORDER BY ID")
         .fetch_all(&pool)
         .await
         .unwrap();
@@ -457,7 +457,6 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
     }
     sm+="}'";
     sm+=&format!(" WHERE ID = {}", followedid);
-    sm+=" ORDER BY ID";
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
     response()
         .await.status(200)
