@@ -107,7 +107,7 @@ async fn pkgbg() -> impl IntoResponse{
 #[tokio::main]
 async fn main() {
     let db_connection_str = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://gugzerxbugsalp:eb8178bf93a439085553be5b5e8c346e4b7b4b9c321591ea0e49206c2573bbf2@ec2-99-81-137-11.eu-west-1.compute.amazonaws.com:5432/dek8a1pejic2ln".to_string());
+        .unwrap_or_else(|_| "postgres://cqbsfwjelclezx:34504970f333d727a191365905486ac48abd898e1ad3d975b002890ea67a6f24@ec2-52-48-159-67.eu-west-1.compute.amazonaws.com:5432/d6jquit4idoppv".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect_timeout(Duration::from_secs(3))
@@ -176,7 +176,7 @@ async fn using_connection_pool_extractor(
 async fn using_connection_pool_extractorz(
     Extension(pool): Extension<PgPool>,
 ) -> String {
-    sqlx::Executor::execute(&pool, "CREATE TABLE users (ID    SERIAL PRIMARY KEY, username    TEXT NOT NULL, full_name    TEXT NOT NULL, created_at    timestamp , bio    TEXT NOT NULL, followers  integer[])")
+    sqlx::Executor::execute(&pool, "CREATE TABLE users (ID    SERIAL PRIMARY KEY, username    TEXT NOT NULL, full_name    TEXT NOT NULL, created_at    timestamp , bio    TEXT NOT NULL, followers  integer[], follows  integer[])")
         .await
         .unwrap()
         .rows_affected()
@@ -214,7 +214,7 @@ async fn makedummyuser(
     let username2="'ab'";
     let full_name2="'abcd'";
     let bio2="'abcdabcdqw'";
-    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers) VALUES ({}, {}, 'now', {}, {})"#, username2, full_name2, bio2, "'{987878}'")[..]).await.unwrap();
+    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers, follows) VALUES ({}, {}, 'now', {}, {}, {})"#, username2, full_name2, bio2, "'{-2}'", "'{-2}'")[..]).await.unwrap();
     response()
         .await.status(200)
         .body(Full::from("Done".to_string()))
@@ -343,7 +343,7 @@ async fn accept_form(q: Form<User>, Extension(pool): Extension<PgPool>,
     let username=q.0.username;
     let full_name=q.0.full_name;
     let bio=q.0.bio;
-    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers) VALUES ('{}', '{}', 'now', '{}', {})"#, username, full_name, bio, "'{987878}'")[..]).await.unwrap();
+    sqlx::Executor::execute(&pool, &format!(r#"INSERT INTO users (username, full_name, created_at, bio, followers, follows) VALUES ('{}', '{}', 'now', '{}', {}, {})"#, username, full_name, bio, "'{-2}'", "'{-2}'")[..]).await.unwrap();
     response()
         .await.status(200)
         .body(Full::from(r#"
@@ -401,6 +401,53 @@ struct UserID{
 async fn deleteuser(q: Form<UserID>, Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
     let id : i32=q.0.userid.parse().unwrap();
+    let mut s : Vec<i32>= sqlx::query(&format!("SELECT follows FROM users WHERE ID = {}", id))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+    let mut r=0;
+    r+=1;
+    while r<s.len()
+    {
+        let mut sw : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", s[r]))
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get(0);
+        let mut rq=0;
+        let mut q=false;
+        let mut w=rq.clone();
+        while rq<sw.len()
+        {
+            if sw[rq]==id
+            {
+                q=true;
+                w=rq;
+            }
+            rq+=1;
+        }
+        if q==true
+        {
+            sw.drain(w..w+1);
+        }
+        let mut sm=String::new();
+        sm+="UPDATE users SET followers = '{";
+        rq=0;
+        while rq<sw.len()
+        {
+            sm+=&sw[rq].to_string();
+            if rq+1<sw.len()
+            {
+                sm+=",";
+            }
+            rq+=1;
+        }
+        sm+="}'";
+        sm+=&format!(" WHERE ID = {}", s[r]);
+        sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
+        r+=1;
+    }
     sqlx::Executor::execute(&pool, &format!("DELETE  FROM users WHERE ID = {}", id)[..]).await.unwrap();
     response()
         .await.status(200)
@@ -465,6 +512,11 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
         .await
         .unwrap()
         .get(0);
+    let mut sw : Vec<i32>= sqlx::query(&format!("SELECT follows FROM users WHERE ID = {}", followerid))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
     let mut r=0;
     let mut q=false;
     let mut w=r.clone();
@@ -499,6 +551,41 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
     }
     sm+="}'";
     sm+=&format!(" WHERE ID = {}", followedid);
+    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
+    let mut r=0;
+    let mut q=false;
+    let mut w=r.clone();
+    while r<sw.len()
+    {
+        if sw[r]==followedid
+        {
+            q=true;
+            w=r;
+        }
+        r+=1;
+    }
+    if q==true
+    {
+        sw.drain(w..w+1);
+    }
+    else if followedid!=followerid
+    {
+        sw.push(followedid);
+    }
+    let mut sm=String::new();
+    sm+="UPDATE users SET follows = '{";
+    r=0;
+    while r<sw.len()
+    {
+        sm+=&sw[r].to_string();
+        if r+1<sw.len()
+        {
+            sm+=",";
+        }
+        r+=1;
+    }
+    sm+="}'";
+    sm+=&format!(" WHERE ID = {}", followerid);
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
     let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users ORDER BY ID")
         .fetch_all(&pool)
