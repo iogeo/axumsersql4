@@ -230,40 +230,73 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     let mut p=0;
     let mut q : i32=0;
     let mut r=String::new();
-    r+="<html><head></head><body><p>ID,username,full_name,created_at,bio\r\n</p>";
+    r+="<html><head></head><body>";
     while p<s.len()
     {
-        r+="<p>";
+        r+="<p>ID: ";
         q=s[p].get(0);
         r+=&q.to_string();
-        r+=",";
+        r+=" Username: ";
         r+=s[p].get(1);
-        r+=",";
+        r+=" Full name: ";
         r+=s[p].get(2);
-        r+=",";
+        r+=" Created_at: ";
         let w : sqlx::types::chrono::NaiveDateTime=s[p].get(3);
         r+=&w.to_string();
-        r+=",";
+        r+=" Bio: ";
         r+=s[p].get(4);
-        r+=" Followed by: ";
-        let mut s : Vec<Vec<i32>>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
-        .fetch_all(&pool)
+        r+=" Followers: ";
+        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
+        .fetch_one(&pool)
         .await
         .unwrap()
         .get(0);
         let mut w=0;
+        w+=1;
+        let mut qw=0;
         if(s.len()>0)
         {
-          while w<s[0].len()
-          {
-             r+=&s[0][w].to_string();
-             r+=" ";
-             w+=1;
-          }
+            while w<s.len()
+            {
+                qw+=1;
+                w+=1;
+            }
         }
-        r+="\r\n</p>";
+        r+=&qw.to_string();
+        r+=" (Followed by:";
+        w=0;
+        w+=1;
+        if(s.len()>0)
+        {
+            while w<s.len()
+            {
+                r+=" User ";
+                r+=&s[w].to_string();
+                if w+1<s.len()
+                {
+                    r+=",";
+                }
+                w+=1;
+            }
+        }
+        r+=")\r\n</p>";
         p+=1;
     }
+    r+=r#"<p>
+                <form action="/followuser" method="post">
+                    <p><label>
+                        Follow/Unfollow user 
+                        <input type="text" name="followed">
+                    </label></p>
+                    <p><label>
+                        as user
+                        <input type="text" name="follower">
+                    </label></p>
+                    <p><input type="submit" value="Follow/Unfollow"></p>
+                </form></p>
+            </body>
+        </html>
+        "#;
     response()
         .await.status(200)
         .body(Full::from(r))
@@ -461,13 +494,66 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
     sm+="}'";
     sm+=&format!(" WHERE ID = {}", followedid);
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-    response()
-        .await.status(200)
-        .body(Full::from(r#"
-        <!doctype html>
-        <html>
-            <head></head>
-            <body>
+    let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users ORDER BY ID")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let mut p=0;
+    let mut q : i32=0;
+    let mut r=String::new();
+    r+="<html><head></head><body>";
+    while p<s.len()
+    {
+        r+="<p>ID: ";
+        q=s[p].get(0);
+        r+=&q.to_string();
+        r+=" Username: ";
+        r+=s[p].get(1);
+        r+=" Full name: ";
+        r+=s[p].get(2);
+        r+=" Created_at: ";
+        let w : sqlx::types::chrono::NaiveDateTime=s[p].get(3);
+        r+=&w.to_string();
+        r+=" Bio: ";
+        r+=s[p].get(4);
+        r+=" Followers: ";
+        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+        let mut w=0;
+        w+=1;
+        let mut qw=0;
+        if(s.len()>0)
+        {
+            while w<s.len()
+            {
+                qw+=1;
+                w+=1;
+            }
+        }
+        r+=&qw.to_string();
+        r+=" (Followed by:";
+        w=0;
+        w+=1;
+        if(s.len()>0)
+        {
+            while w<s.len()
+            {
+                r+=" User ";
+                r+=&s[w].to_string();
+                if w+1<s.len()
+                {
+                    r+=",";
+                }
+                w+=1;
+            }
+        }
+        r+=")\r\n</p>";
+        p+=1;
+    }
+    r+=r#"<p>
                 <form action="/followuser" method="post">
                     <p><label>
                         Follow/Unfollow user 
@@ -478,10 +564,13 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
                         <input type="text" name="follower">
                     </label></p>
                     <p><input type="submit" value="Follow/Unfollow"></p>
-                </form>
+                </form></p>
             </body>
         </html>
-        "#.to_string()))
+        "#;
+    response()
+        .await.status(200)
+        .body(Full::from(r))
         .unwrap()
 }
 async fn deleteallusers(Extension(pool): Extension<PgPool>,
