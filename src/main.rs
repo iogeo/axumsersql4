@@ -459,7 +459,10 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
     sm+=&format!(" WHERE ID = {}", followedid);
     println!("{}", sm);
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-    let mut p :i32= sqlx::query("SELECT ID FROM users ORDER BY ID");
+    let mut p :i32= sqlx::query("SELECT ID FROM users ORDER BY ID").fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);;
     response()
         .await.status(200)
         .body(Full::from(r#"
