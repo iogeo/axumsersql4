@@ -294,6 +294,7 @@ async fn getusers(Extension(pool): Extension<PgPool>,
                     </label></p>
                     <p><input type="submit" value="Follow/Unfollow"></p>
                 </form></p>
+                <p><a href=/>Index</a></p>
             </body>
         </html>
         "#;
@@ -570,6 +571,7 @@ async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
                     </label></p>
                     <p><input type="submit" value="Follow/Unfollow"></p>
                 </form></p>
+                <p><a href=/>Index</a></p>
             </body>
         </html>
         "#;
