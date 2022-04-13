@@ -329,7 +329,7 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     r+="</tbody></table>";
     r+=r#"<script>
 var u;
-var ws = new WebSocket("ws://localhost:7878/ws");
+var ws = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
 ws.addEventListener("message", sock);
 function sockq(l)
         {{
