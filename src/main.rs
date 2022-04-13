@@ -1,5 +1,5 @@
 use std::io::prelude::*;
-use axum::{Json, response::{Html, IntoResponse, Response},routing::get,routing::post,routing::post_service,Router,http::{Uri, header::{self, HeaderMap, HeaderName}},extract::{Extension, FromRequest, RequestParts}};
+use axum::{extract::{ws::{Message, WebSocket, WebSocketUpgrade},TypedHeader},Json, response::{Html, IntoResponse, Response},routing::get,routing::post,routing::post_service,Router,http::{Uri, header::{self, HeaderMap, HeaderName}},extract::{Extension, FromRequest, RequestParts}};
 use std::fs::File;
 use std::fs;
 use std::str::FromStr;
@@ -71,6 +71,17 @@ async fn reset() -> Html<String>{
 
 async fn indexjs() -> impl IntoResponse{
     let mut r=File::open("index.js").unwrap();
+    let mut p = String::new();
+    r.read_to_string(&mut p);
+    response()
+        .await.status(200)
+        .header("Content-Type","text/javascript; charset=UTF-8")
+        .body(Full::from(p))
+        .unwrap()
+}
+
+async fn qwjs() -> impl IntoResponse{
+    let mut r=File::open("qw.js").unwrap();
     let mut p = String::new();
     r.read_to_string(&mut p);
     response()
@@ -156,6 +167,10 @@ async fn main() {
         "/deleteallusers", get(deleteallusers))
         .route(
         "/followuser", get(followuserq).post(followuser))
+        .route(
+        "/ws", get(handlerws))
+        .route(
+        "/qw.js", get(qwjs))
         .layer(Extension(pool));
     let q = env::var("PORT")
         .unwrap_or_else(|_| "7878".to_string())
@@ -230,22 +245,42 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     let mut p=0;
     let mut q : i32=0;
     let mut r=String::new();
-    r+="<html><head></head><body>";
+    let mut qw: Vec<i32>=Vec::new();
+    r+=r#"<html><head>
+</head><body>
+<span id=wq hidden></span>
+<p>Log in as User <input type="text" id=userid></input> <button id=user>Log in</button> <span id=qw></span></p>
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+<th>Username</th>
+<th>Full Name</th>
+<th>Created At</th>
+<th>Bio</th>
+<th>Followers</th>
+<th></th>
+        </tr>
+    </thead>
+<tbody>"#;
     while p<s.len()
     {
-        r+="<p>ID: ";
+        r+="<tr><td>";
         q=s[p].get(0);
+        qw.push(s[p].get(0));
         r+=&q.to_string();
-        r+=" | Username: ";
+        r+="<td>";
         r+=s[p].get(1);
-        r+=" | Full name: ";
+        r+="<td>";
         r+=s[p].get(2);
-        r+=" | Created_at: ";
+        r+="<td>";
         let w : sqlx::types::chrono::NaiveDateTime=s[p].get(3);
-        r+=&w.to_string();
-        r+=" | Bio: ";
+        let mut wr=&mut w.to_string();
+        wr.drain(wr.len()-7..);
+        r+=&wr;
+        r+="<td>";
         r+=s[p].get(4);
-        r+=" | Followers: ";
+        r+=&format!("<td><span id=w{}>", qw[p])[..];
         let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
         .fetch_one(&pool)
         .await
@@ -253,17 +288,20 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         .get(0);
         let mut w=0;
         w+=1;
-        let mut qw=0;
+        let mut qwr=0;
         if(s.len()>0)
         {
             while w<s.len()
             {
-                qw+=1;
+                qwr+=1;
                 w+=1;
             }
         }
-        r+=&qw.to_string();
-        r+=" (Followed by:";
+        r+=&qwr.to_string();
+        if qwr>0
+        {
+            r+=" (Followed by:";
+        }
         w=0;
         w+=1;
         if(s.len()>0)
@@ -279,25 +317,71 @@ async fn getusers(Extension(pool): Extension<PgPool>,
                 w+=1;
             }
         }
-        r+=")\r\n</p>";
+        if qwr>0
+        {
+            r+=")";
+        }
+        r+=&format!("</span><td><button id=r{}>Follow/Unfollow</button>", qw[p])[..];
+        r+="\r\n</p>";
         p+=1;
     }
-    r+=r#"<p>
-                <form action="/followuser" method="post">
-                    <p><label>
-                        Follow/Unfollow user 
-                        <input type="text" name="followed">
-                    </label></p>
-                    <p><label>
-                        as user
-                        <input type="text" name="follower">
-                    </label></p>
-                    <p><input type="submit" value="Follow/Unfollow"></p>
-                </form></p>
-                <p><a href=/>Index</a></p>
+
+    r+="</tbody></table>";
+    r+=r#"<script>
+var u;
+var ws = new WebSocket("ws://localhost:7878/ws");
+ws.addEventListener("message", sock);
+function sockq(l)
+        {{
+            ws.send(3);
+            document.getElementById(document.getElementById("wq").innerText).innerText=l.data;
+            ws.removeEventListener("message", sockq);
+            ws.addEventListener("message", sock);
+        }}
+function sock(l)
+        {{
+            ws.removeEventListener("message", sock);
+            ws.send(3);
+            document.getElementById("wq").innerText="w"+l.data;
+            ws.addEventListener("message", sockq);
+
+
+        }};
+user.addEventListener("mouseup", userq);
+function userq(l)
+        {{
+u=document.getElementById("userid").value;
+document.getElementById("userid").value="";
+document.getElementById("userid").disabled=2;
+        document.getElementById("user").disabled=2;
+        document.getElementById("qw").innerText="Logged in as User "+u;
+        }}"#;
+let mut p=0;
+while p<s.len()
+    {
+        r+=&format!(r#"
+        r{}.addEventListener("mouseup", e{});"#, qw[p], qw[p])[..];
+        p+=1;
+    }
+
+let mut p=0;
+while p<s.len()
+    {
+        r+=&format!(r#"
+function e{}(l)
+        {{
+            ws.send(3);
+        ws.send({});
+        ws.send(u);
+        }}"#, qw[p], qw[p])[..];
+        p+=1;
+    }
+
+r+="</script>
             </body>
         </html>
-        "#;
+        ";
+
     response()
         .await.status(200)
         .body(Full::from(r))
@@ -500,8 +584,8 @@ struct FollowUserIDs{
 
 async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
-    let followerid : i32=q.0.follower.parse().unwrap();
     let followedid : i32=q.0.followed.parse().unwrap();
+let followerid : i32=q.0.followed.parse().unwrap();
     let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
         .fetch_one(&pool)
         .await
@@ -683,4 +767,145 @@ async fn deleteallusers(Extension(pool): Extension<PgPool>,
         </html>
         "#.to_string()))
         .unwrap()
+}
+
+async fn handlerws(Extension(pool): Extension<PgPool>,ws: WebSocketUpgrade) -> impl IntoResponse {
+    println!("ef");
+    ws.on_upgrade(move |mut sock| async move{
+    while sock.recv().await.unwrap().unwrap().into_text().unwrap().parse::<i32>().unwrap()>2
+{
+    let followedid : i32=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap();
+    let followerid : i32=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap();
+println!("{}", followedid);
+println!("{}", followerid);
+    let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+    let mut sq : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followerid))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+    let mut sw : Vec<i32>= sqlx::query(&format!("SELECT follows FROM users WHERE ID = {}", followerid))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+    let mut r=0;
+    let mut q=false;
+    let mut w=r.clone();
+    while r<s.len()
+    {
+        if s[r]==followerid
+        {
+            q=true;
+            w=r;
+        }
+        r+=1;
+    }
+    if q==true
+    {
+        s.drain(w..w+1);
+    }
+    else if followerid!=followedid
+    {
+        s.push(followerid);
+    }
+    let mut sm=String::new();
+    sm+="UPDATE users SET followers = '{";
+    r=0;
+    while r<s.len()
+    {
+        sm+=&s[r].to_string();
+        if r+1<s.len()
+        {
+            sm+=",";
+        }
+        r+=1;
+    }
+    sm+="}'";
+    sm+=&format!(" WHERE ID = {}", followedid);
+    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
+    let mut r=0;
+    let mut q=false;
+    let mut w=r.clone();
+    while r<sw.len()
+    {
+        if sw[r]==followedid
+        {
+            q=true;
+            w=r;
+        }
+        r+=1;
+    }
+    if q==true
+    {
+        sw.drain(w..w+1);
+    }
+    else if followedid!=followerid
+    {
+        sw.push(followedid);
+    }
+    let mut sm=String::new();
+    sm+="UPDATE users SET follows = '{";
+    r=0;
+    while r<sw.len()
+    {
+        sm+=&sw[r].to_string();
+        if r+1<sw.len()
+        {
+            sm+=",";
+        }
+        r+=1;
+    }
+    sm+="}'";
+    sm+=&format!(" WHERE ID = {}", followerid);
+    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
+sock.send(axum::extract::ws::Message::Text(followedid.to_string())).await.unwrap();
+sock.recv().await.unwrap().unwrap();
+let mut r=String::new();
+println!("{}", followedid);
+let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get(0);
+        let mut w=0;
+        w+=1;
+        let mut qw=0;
+        if(s.len()>0)
+        {
+            while w<s.len()
+            {
+                qw+=1;
+                w+=1;
+            }
+        }
+        r+=&qw.to_string();
+if(qw>0)
+        {
+        r+=" (Followed by:";
+        w=0;
+}
+        w+=1;
+        if(s.len()>0)
+        {
+            while w<s.len()
+            {
+                r+=" User ";
+                r+=&s[w].to_string();
+                if w+1<s.len()
+                {
+                    r+=",";
+                }
+                w+=1;
+            }if(qw>0)
+        {
+r+=")";
+        }}
+sock.send(axum::extract::ws::Message::Text(r)).await.unwrap();
+sock.recv().await.unwrap().unwrap();
+}})
 }
