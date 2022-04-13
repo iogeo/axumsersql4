@@ -352,6 +352,8 @@ function userq(l)
         {{
 u=document.getElementById("userid").value;
 document.getElementById("userid").value="";
+    document.getElementById("userid").disabled=2;
+        document.getElementById("user").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
         }}"#;
 let mut p=0;
