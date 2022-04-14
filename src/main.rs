@@ -13,17 +13,6 @@ use serde::ser::{SerializeStruct, Serializer};
 use sqlx::postgres::types::PgTimeTz;
 use postgres::types::Type;
 use axum::extract::Form;
-use rdkafka::client::ClientContext;
-use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::stream_consumer::StreamConsumer;
-use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, Rebalance};
-use rdkafka::error::KafkaResult;
-use rdkafka::message::{Message as rdMessage};
-use rdkafka::topic_partition_list::TopicPartitionList;
-use rdkafka::consumer::DefaultConsumerContext;
-use rdkafka::message::{OwnedHeaders};
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use rdkafka::util::get_rdkafka_version;
 
 #[derive(Serialize, Deserialize)]
 struct User
@@ -186,13 +175,6 @@ async fn main() {
     let q = env::var("PORT")
         .unwrap_or_else(|_| "7878".to_string())
         .to_string();
-    let brokers = "lqocalhost:7878";
-    let topic = "QW";
-    let group_id = "group_id";
-    let mut topics : Vec<&str> = Vec::new();
-    topics.push(topic);
-    //produce(brokers, topic).await;
-    //consume(brokers, group_id, &topics).await;
     axum::Server::bind(&("0.0.0.0:".to_owned()+&q).parse().unwrap())
         .serve(app.into_make_service())
         .await
@@ -787,7 +769,7 @@ async fn deleteallusers(Extension(pool): Extension<PgPool>,
 async fn handlerws(Extension(pool): Extension<PgPool>,ws: WebSocketUpgrade) -> impl IntoResponse {
     println!("ef");
     ws.on_upgrade(move |mut sock| async move{
-    while let followedid =sock.recv().await.unwrap().unwrap().into_text().unwrap().parse::<i32>().unwrap()
+    while let followedid=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap()
 {
     let followerid : i32=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap();
 println!("{}", followedid);
@@ -874,7 +856,6 @@ println!("{}", followerid);
         }
         r+=1;
     }
-r#"""#;
     sm+="}'";
     sm+=&format!(" WHERE ID = {}", followerid);
     sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
@@ -921,59 +902,4 @@ r+=")";
         }}
 sock.send(axum::extract::ws::Message::Text(r)).await.unwrap();
 }})
-}
-
-async fn consume(brokers: &str, group_id: &str, topics: &[&str]) {
-
-    let consumer: StreamConsumer<DefaultConsumerContext> = ClientConfig::new()
-        .set("group.id", group_id)
-        .set("bootstrap.servers", brokers)
-        .set("enable.partition.eof", "false")
-        .set("session.timeout.ms", "6000")
-        .set("enable.auto.commit", "true")
-        //.set("statistics.interval.ms", "30000")
-        //.set("auto.offset.reset", "smallest")
-        .set_log_level(RDKafkaLogLevel::Debug)
-        .create_with_context(DefaultConsumerContext)
-        .expect("Consumer creation failed");
-
-    consumer.subscribe(&topics.to_vec()).unwrap();
-    while let mut q=consumer.recv().await.unwrap()
-    {
-        let payload = q.payload_view::<str>();
-        consumer.commit_message(&q, CommitMode::Async).unwrap();
-    }
-}
-
-async fn produce(brokers: &str, topic_name: &str) {
-    let producer: &FutureProducer = &ClientConfig::new()
-        .set("bootstrap.servers", brokers)
-        .set("message.timeout.ms", "5000")
-        .create()
-        .expect("Producer creation error");
-    let futures = (0..5)
-        .map(|i| async move {
-            let delivery_status = producer
-                .send(
-                    FutureRecord::to(topic_name)
-                        .payload(&format!("Message {}", i))
-                        .key(&format!("Key {}", i))
-                        .headers(OwnedHeaders::new().add(
-                            "header_key",
-                            "header_value"
-                        )),
-                    Duration::from_secs(0),
-                )
-                .await;
-
-            // This will be executed when the result is received.
-            println!("Delivery status for message {} received", i);
-            delivery_status
-        })
-        .collect::<Vec<_>>();
-
-    // This loop will wait until all delivery statuses have been received.
-    for future in futures {
-        println!("Future completed. Result: {:?}", future.await);
-    }
 }
