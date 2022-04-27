@@ -1,9 +1,11 @@
 use std::io::prelude::*;
-use axum::{extract::{ws::{Message, WebSocket, WebSocketUpgrade},TypedHeader},Json, response::{Html, IntoResponse, Response},routing::get,routing::post,routing::post_service,Router,http::{Uri, header::{self, HeaderMap, HeaderName}},extract::{Extension, FromRequest, RequestParts}};
+use axum::{extract::{ws::{Message as wMes, WebSocket, WebSocketUpgrade},TypedHeader},Json, response::{Html, IntoResponse, Response},routing::get,routing::post,routing::post_service,Router,http::{Uri, header::{self, HeaderMap, HeaderName}},extract::{Extension, FromRequest, RequestParts}};
 use std::fs::File;
 use std::fs;
 use std::str::FromStr;
 use std::env;
+use rand::Rng;
+use std::thread;
 use axum::body::Full;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::Row;
@@ -13,6 +15,32 @@ use serde::ser::{SerializeStruct, Serializer};
 use sqlx::postgres::types::PgTimeTz;
 use postgres::types::Type;
 use axum::extract::Form;
+use rdkafka::config::ClientConfig;
+use rdkafka::message::{OwnedHeaders};
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::{BaseProducer, BaseRecord};
+use rdkafka::util::get_rdkafka_version;
+use rdkafka::client::ClientContext;
+use rdkafka::producer::DefaultProducerContext;
+use rdkafka::consumer::stream_consumer::StreamConsumer;
+use rdkafka::producer::ThreadedProducer;
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, Rebalance};
+use rdkafka::error::KafkaResult;
+use rdkafka::message::{Headers, Message};
+use rdkafka::topic_partition_list::TopicPartitionList;
+use rdkafka::consumer::DefaultConsumerContext;
+use rdkafka::consumer::BaseConsumer;
+use sqlx::Either::Left;
+use sqlx::Either::Right;
+use std::pin::Pin;
+use futures_core::stream::Stream;
+use futures_core::task::Poll::Ready;
+use futures_core::task::Waker;
+use rdkafka::producer::Producer;
+use futures_util::StreamExt;
+use futures_util::Future;
+use futures_util::poll;
+use futures::executor::block_on;
 
 #[derive(Serialize, Deserialize)]
 struct User
@@ -20,6 +48,20 @@ struct User
     username: String,
     full_name: String,
     bio: String
+}
+
+#[derive(Serialize, Deserialize)]
+struct Follow
+{
+    followerid: i32,
+    followedid: i32
+}
+
+#[derive(Serialize, Deserialize)]
+struct Followq
+{
+    followedid: i32,
+    followers: String
 }
 
 async fn response() -> axum::http::response::Builder {
@@ -117,31 +159,16 @@ async fn pkgbg() -> impl IntoResponse{
 
 #[tokio::main]
 async fn main() {
-    let db_connection_str = std::env::var("PATH")
-        .unwrap_or_else(|_| "postgres://cqbsfwjelclezx:34504970f333d727a191365905486ac48abd898e1ad3d975b002890ea67a6f24@ec2-52-48-159-67.eu-west-1.compute.amazonaws.com:5432/d6jquit4idoppv".to_string());
+    let db_connection_str = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://ycxoygomdkgjda:4d1e5d861e8844d4b740a932b32bfac17c36625ef46d9460596497d8a9a84d91@ec2-34-247-72-29.eu-west-1.compute.amazonaws.com:5432/d24bkboe7oopjq".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect_timeout(Duration::from_secs(3))
         .connect(&db_connection_str)
         .await
         .unwrap();
+    let pool2 = pool.clone();
     let app = Router::new()
-        .route(
-        "/", get(root))
-        .route(
-        "/canvas.html", get(canvas))
-        .route(
-        "/discussions", get(discussions))
-        .route(
-        "/rest.html", get(rest))
-        .route(
-        "/reset", get(reset))
-        .route(
-        "/index.js", get(indexjs))
-        .route(
-        "/pkg/webgl.js", get(pkgjs))
-        .route(
-        "/pkg/webgl_bg.wasm", get(pkgbg))
         .route(
         "/sql",
         get(using_connection_pool_extractor))
@@ -165,16 +192,352 @@ async fn main() {
         "/deleteuser", get(deleteuserq).post(deleteuser))
         .route(
         "/deleteallusers", get(deleteallusers))
-        .route(
-        "/followuser", get(followuserq).post(followuser))
+        .layer(Extension(pool2))
         .route(
         "/ws", get(handlerws))
         .route(
         "/qw.js", get(qwjs))
-        .layer(Extension(pool));
+        .route(
+        "/", get(root))
+        .route(
+        "/canvas.html", get(canvas))
+        .route(
+        "/discussions", get(discussions))
+        .route(
+        "/rest.html", get(rest))
+        .route(
+        "/reset", get(reset))
+        .route(
+        "/index.js", get(indexjs))
+        .route(
+        "/pkg/webgl.js", get(pkgjs))
+        .route(
+        "/pkg/webgl_bg.wasm", get(pkgbg));
     let q = env::var("PORT")
         .unwrap_or_else(|_| "7878".to_string())
         .to_string();
+    let brokers = "127.0.0.1:9092";
+    let topic = "follows";
+    let group_id = "group_id";
+    let mut topics : Vec<&str> = Vec::new();
+    topics.push(topic);
+    tokio::spawn(async move {
+    println!("2none");
+    let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
+        .set("group.id", "follower")
+        .set("bootstrap.servers", "127.0.0.1:9092")
+        .set("enable.partition.eof", "false")
+        .set("session.timeout.ms", "6000")
+        .set("enable.auto.commit", "true")
+        //.set("statistics.interval.ms", "30000")
+        //.set("auto.offset.reset", "smallest")
+        .create_with_context(DefaultConsumerContext)
+        .expect("Consumer creation failed");
+    let producerq: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", "127.0.0.1:9092")
+        .set("message.timeout.ms", "5420")
+        .create()
+        .expect("Producer creation error");
+    let mut topics : Vec<&str> = Vec::new();
+    topics.push("follows");
+    consumer.subscribe(&topics).unwrap();
+    let mut s : String = String::new();
+    let mut fs : Vec<Follow> = Vec::new();
+    let mut wq : Vec<Followq> = Vec::new();
+    let mut sm : String = String::new();
+    let mut l=0;
+    loop 
+    {
+        let q = match consumer.poll(Duration::from_millis(822)){
+                    None => 
+                    {
+                        let mut lw=0;
+                        let mut qlw=0;
+                        s+="SELECT followers FROM users WHERE ID = 3\r\n";
+                        let mut wsq : String = s.clone();
+                        let mut r = sqlx::query(&wsq).fetch_many(&pool);
+                        while lw<l
+                        {
+                            qlw=lw/3;
+                                let mut sqw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                let mut sq : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                let mut sw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                sm+="UPDATE users SET followers = '{";
+                                let mut followerid = fs[qlw].followerid;
+                                let mut followedid = fs[qlw].followedid;
+                                let mut r=0;
+                                let mut q=false;
+                                let mut w=r.clone();
+                                while r<sqw.len()
+                                {
+                                    if sqw[r]==followerid
+                                    {
+                                        q=true;
+                                        w=r;
+                                    }
+                                    r+=1;
+                                }
+                                if q==true
+                                {
+                                    sqw.drain(w..w+1);
+                                }
+                                else if followerid!=followedid
+                                {
+                                    sqw.push(followerid);
+                                }
+                                let mut r=0;
+                                let mut wsqw : Vec<i32> = Vec::new();
+                                while r<sqw.len()
+                                {
+                                    wsqw.push(sqw[r]);
+                                    r+=1;
+                                }
+                                let mut smq : String = String::new();
+                                smq+=&(&wsqw.len()-1).to_string();
+                                smq+=" (Followed by: ";
+                                r+=1;
+                                let mut r=0;
+                                r+=1;
+                                while r<wsqw.len()
+                                {
+                                    smq+="User ";
+                                    smq+=&wsqw[r].to_string();
+                                    if r+1<wsqw.len()
+                                    {
+                                        smq+=", ";
+                                    }
+                                    r+=1;
+                                }
+                                let mut r=0;
+                                while r<sqw.len()
+                                {
+                                    sm+=&sqw[r].to_string();
+                                    if r+1<sqw.len()
+                                    {
+                                        sm+=",";
+                                    }
+                                    r+=1;
+                                }
+                                smq+=")";
+                                sm+="}'";
+                                sm+=&format!(" WHERE ID = {} ;\r\n", followedid);
+                                let mut r=0;
+                                let mut q=false;
+                                let mut w=r.clone();
+                                while r<sw.len()
+                                {
+                                    if sw[r]==followedid
+                                    {
+                                        q=true;
+                                        w=r;
+                                    }
+                                    r+=1;
+                                }
+                                if q==true
+                                {
+                                    sw.drain(w..w+1);
+                                }
+                                else if followedid!=followerid
+                                {
+                                    sw.push(followedid);
+                                }
+                                
+                                sm+="UPDATE users SET follows = '{";
+                                r=0;
+                                while r<sw.len()
+                                {
+                                    sm+=&sw[r].to_string();
+                                    if r+1<sw.len()
+                                    {
+                                        sm+=",";
+                                    }
+                                    r+=1;
+                                }
+                                println!("{}", smq);
+                                wq.push(Followq{followedid: followedid, followers: smq.clone()});
+                                sm+="}'";
+                                sm+=&format!(" WHERE ID = {} ;\r\n", followerid);
+                            }
+                            sm+="UPDATE users SET ID = 3 WHERE ID = 3\r\n";
+                                    println!("{}", &((sm)[..]));
+                                let mut sl=sm.clone();
+                                let mut q=sqlx::Executor::execute_many(&pool, &(sl[..]));
+                                let mut r=0;
+                                println!("{}", &wq.len());
+                                while r<wq.len()
+                                {
+                                    println!("{:?}", &wq[r].followers);
+                                    producerq.send(FutureRecord::to("followsq").payload(&format!(r#""followedid":{}, "followers":"{}""#, wq[r].followedid, wq[r].followers)).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
+                                    r+=1;
+                                }
+                                
+                        let mut qw=q.next().await.unwrap().unwrap();
+                        
+                        l=0;
+                        wq.clear();
+                        s.clear();
+                        fs.clear();
+                        sm.clear();
+                    },
+                    Some(Ok(w)) => 
+                    {
+                        if l<75
+                        {
+                            let qw = w.payload_view::<str>().unwrap().unwrap();
+                            println!("{}", (&("{".to_owned()+&qw+"}")));
+                            let follow : Follow = serde_json::from_str(&("{".to_owned()+&qw+"}")).unwrap();
+                            s+=&format!("SELECT followers FROM users WHERE ID = {} UNION ALL\r\n", follow.followedid)[..];
+                            s+=&format!("SELECT followers FROM users WHERE ID = {} UNION ALL\r\n", follow.followerid)[..];
+                            s+=&format!("SELECT follows FROM users WHERE ID = {} UNION ALL\r\n", follow.followerid)[..];
+                            fs.push(follow);
+                            l+=1;
+                            consumer.commit_message(&w, CommitMode::Async).unwrap();
+                        }
+                        else
+                        {
+                            let mut lw=0;
+                        let mut qlw=0;
+                        s+="SELECT followers FROM users WHERE ID = 3\r\n";
+                        let mut wsq : String = s.clone();
+                        let mut r = sqlx::query(&wsq).fetch_many(&pool);
+                        while lw<l
+                        {
+                            qlw=lw/3;
+                                let mut sqw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                let mut sq : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                let mut sw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                lw+=1;
+                                sm+="UPDATE users SET followers = '{";
+                                let mut followerid = fs[qlw].followerid;
+                                let mut followedid = fs[qlw].followedid;
+                                let mut r=0;
+                                let mut q=false;
+                                let mut w=r.clone();
+                                while r<sqw.len()
+                                {
+                                    if sqw[r]==followerid
+                                    {
+                                        q=true;
+                                        w=r;
+                                    }
+                                    r+=1;
+                                }
+                                if q==true
+                                {
+                                    sqw.drain(w..w+1);
+                                }
+                                else if followerid!=followedid
+                                {
+                                    sqw.push(followerid);
+                                }
+                                let mut r=0;
+                                let mut wsqw : Vec<i32> = Vec::new();
+                                while r<sqw.len()
+                                {
+                                    wsqw.push(sqw[r]);
+                                    r+=1;
+                                }
+                                let mut smq : String = String::new();
+                                smq+=&(&wsqw.len()-1).to_string();
+                                smq+=" (Followed by: ";
+                                r+=1;
+                                let mut r=0;
+                                r+=1;
+                                while r<wsqw.len()
+                                {
+                                    smq+="User ";
+                                    smq+=&wsqw[r].to_string();
+                                    if r+1<wsqw.len()
+                                    {
+                                        smq+=", ";
+                                    }
+                                    r+=1;
+                                }
+                                let mut r=0;
+                                while r<sqw.len()
+                                {
+                                    sm+=&sqw[r].to_string();
+                                    if r+1<sqw.len()
+                                    {
+                                        sm+=",";
+                                    }
+                                    r+=1;
+                                }
+                                smq+=")";
+                                sm+="}'";
+                                sm+=&format!(" WHERE ID = {} ;\r\n", followedid);
+                                let mut r=0;
+                                let mut q=false;
+                                let mut w=r.clone();
+                                while r<sw.len()
+                                {
+                                    if sw[r]==followedid
+                                    {
+                                        q=true;
+                                        w=r;
+                                    }
+                                    r+=1;
+                                }
+                                if q==true
+                                {
+                                    sw.drain(w..w+1);
+                                }
+                                else if followedid!=followerid
+                                {
+                                    sw.push(followedid);
+                                }
+                                
+                                sm+="UPDATE users SET follows = '{";
+                                r=0;
+                                while r<sw.len()
+                                {
+                                    sm+=&sw[r].to_string();
+                                    if r+1<sw.len()
+                                    {
+                                        sm+=",";
+                                    }
+                                    r+=1;
+                                }
+                                println!("{}", smq);
+                                wq.push(Followq{followedid: followedid, followers: smq.clone()});
+                                sm+="}'";
+                                sm+=&format!(" WHERE ID = {} ;\r\n", followerid);
+                            }
+                            sm+="UPDATE users SET ID = 3 WHERE ID = 3\r\n";
+                                    println!("{}", &((sm)[..]));
+                                let mut sl=sm.clone();
+                                let mut q=sqlx::Executor::execute_many(&pool, &(sl[..]));
+                                let mut r=0;
+                                println!("{}", &wq.len());
+                                while r<wq.len()
+                                {
+                                    println!("{:?}", &wq[r].followers);
+                                    producerq.send(FutureRecord::to("followsq").payload(&format!(r#""followedid":{}, "followers":"{}""#, wq[r].followedid, wq[r].followers)).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
+                                    r+=1;
+                                }
+                                
+                        let mut qw=q.next().await.unwrap().unwrap();
+                        
+                        l=0;
+                        wq.clear();
+                        s.clear();
+                        fs.clear();
+                        sm.clear();
+                        }
+                    },
+                    Some(Err(w)) => 
+                    {
+
+                    }
+                };
+    }
+;
+    });
     axum::Server::bind(&("0.0.0.0:".to_owned()+&q).parse().unwrap())
         .serve(app.into_make_service())
         .await
@@ -242,6 +605,7 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         .fetch_all(&pool)
         .await
         .unwrap();
+    let mut sq=String::new();
     let mut p=0;
     let mut q : i32=0;
     let mut r=String::new();
@@ -263,6 +627,17 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         </tr>
     </thead>
 <tbody>"#;
+    while p<s.len()-7/7
+    {
+        q=s[p].get(0);
+        sq+=&format!("SELECT followers FROM users WHERE ID = {} UNION ALL\r\n", q)[..];
+        p+=1;
+    }
+    q=s[p].get(0);
+    sq+=&format!("SELECT followers FROM users WHERE ID = {}", q)[..];
+    println!("{}", sq);
+    let mut sw = sqlx::query(&sq).fetch_many(&pool);
+    p=0;
     while p<s.len()
     {
         r+="<tr><td>";
@@ -281,11 +656,7 @@ async fn getusers(Extension(pool): Extension<PgPool>,
         r+="<td>";
         r+=s[p].get(4);
         r+=&format!("<td><span id=w{}>", qw[p])[..];
-        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
+        let mut s : Vec<i32>= sw.next().await.unwrap().unwrap().right().unwrap().get(0);
         let mut w=0;
         w+=1;
         let mut qwr=0;
@@ -327,23 +698,19 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     }
 
     r+="</tbody></table>";
-    r+=r#"<script>
+    r+=&format!(r#"<script>
 var u;
-var ws = new WebSocket("ws://localhost:7878/ws");
-ws.addEventListener("message", sock);
-function sockq(l)
-        {{
-            document.getElementById(document.getElementById("wq").innerText).innerText=l.data;
-            ws.removeEventListener("message", sockq);
-            ws.addEventListener("message", sock);
-        }}
+var ws = new WebSocket("ws://localhost:{}/ws");
+var ws2 = new WebSocket("ws://localhost:{}/ws");
+
+
+ws2.addEventListener("message", sock);
 function sock(l)
-        {{
-            ws.removeEventListener("message", sock);
-            document.getElementById("wq").innerText="w"+l.data;
-            ws.addEventListener("message", sockq);
+        {{   document.getElementById("wq").innerHTML=l.data;         
+            var w=JSON.parse('{{'+l.data+'}}');
+            
 
-
+            document.getElementById("w"+w.followedid).innerText=w.followers;
         }};
 user.addEventListener("mouseup", userq);
 function userq(l)
@@ -353,8 +720,13 @@ document.getElementById("userid").value="";
 document.getElementById("userid").disabled=2;
         document.getElementById("user").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
-        }}"#;
-r#"""#;
+        ws.send("3");
+ws2.send("2"); 
+        }}"#, env::var("PORT")
+        .unwrap_or_else(|_| "7878".to_string())
+        .to_string(), env::var("PORT")
+        .unwrap_or_else(|_| "7878".to_string())
+        .to_string())[..];
 let mut p=0;
 while p<s.len()
     {
@@ -369,8 +741,8 @@ while p<s.len()
         r+=&format!(r#"
 function e{}(l)
         {{
-        ws.send({});
-        ws.send(u);
+            
+        ws.send('{{"followerid":'+u+', "followedid":{}}}');
         }}"#, qw[p], qw[p])[..];
         p+=1;
     }
@@ -412,6 +784,7 @@ async fn show_form() -> Html<&'static str> {
         </html>
         "#,
     )
+
 }
 
 #[derive(Deserialize, Debug)]
@@ -422,6 +795,7 @@ struct UserN{
 
 async fn accept_form(q: Form<User>, Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
+r#"""#;
     let username=q.0.username;
     let full_name=q.0.full_name;
     let bio=q.0.bio;
@@ -580,175 +954,61 @@ struct FollowUserIDs{
     followed: String
 }
 
-async fn followuser(q: Form<FollowUserIDs>, Extension(pool): Extension<PgPool>,
-) -> impl IntoResponse{
-    let followedid : i32=q.0.followed.parse().unwrap();
-let followerid : i32=q.0.followed.parse().unwrap();
-    let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut sq : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followerid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut sw : Vec<i32>= sqlx::query(&format!("SELECT follows FROM users WHERE ID = {}", followerid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut r=0;
-    let mut q=false;
-    let mut w=r.clone();
-    while r<s.len()
-    {
-        if s[r]==followerid
+async fn handlerws(ws: WebSocketUpgrade) -> impl IntoResponse {
+
+        ws.on_upgrade(move |mut sock| async move{
+        let e=sock.recv().await.unwrap().unwrap().into_text().unwrap();
+        println!("{}", e);
+        if e=="2"
         {
-            q=true;
-            w=r;
-        }
-        r+=1;
-    }
-    if q==true
-    {
-        s.drain(w..w+1);
-    }
-    else if followerid!=followedid
-    {
-        s.push(followerid);
-    }
-    let mut sm=String::new();
-    sm+="UPDATE users SET followers = '{";
-    r=0;
-    while r<s.len()
-    {
-        sm+=&s[r].to_string();
-        if r+1<s.len()
-        {
-            sm+=",";
-        }
-        r+=1;
-    }
-    sm+="}'";
-    sm+=&format!(" WHERE ID = {}", followedid);
-    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-    let mut r=0;
-    let mut q=false;
-    let mut w=r.clone();
-    while r<sw.len()
-    {
-        if sw[r]==followedid
-        {
-            q=true;
-            w=r;
-        }
-        r+=1;
-    }
-    if q==true
-    {
-        sw.drain(w..w+1);
-    }
-    else if followedid!=followerid
-    {
-        sw.push(followedid);
-    }
-    let mut sm=String::new();
-    sm+="UPDATE users SET follows = '{";
-    r=0;
-    while r<sw.len()
-    {
-        sm+=&sw[r].to_string();
-        if r+1<sw.len()
-        {
-            sm+=",";
-        }
-        r+=1;
-    }
-    sm+="}'";
-    sm+=&format!(" WHERE ID = {}", followerid);
-    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-    let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users ORDER BY ID")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-    let mut p=0;
-    let mut q : i32=0;
-    let mut r=String::new();
-    r+="<html><head></head><body>";
-    while p<s.len()
-    {
-        r+="<p>ID: ";
-        q=s[p].get(0);
-        r+=&q.to_string();
-        r+=" | Username: ";
-        r+=s[p].get(1);
-        r+=" | Full name: ";
-        r+=s[p].get(2);
-        r+=" | Created_at: ";
-        let w : sqlx::types::chrono::NaiveDateTime=s[p].get(3);
-        r+=&w.to_string();
-        r+=" | Bio: ";
-        r+=s[p].get(4);
-        r+=" | Followers: ";
-        let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", q))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-        let mut w=0;
-        w+=1;
-        let mut qw=0;
-        if(s.len()>0)
-        {
-            while w<s.len()
+            let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
+                .set("group.id", &("follow".to_owned()+&rand::thread_rng().gen_range(324..324324824 as i32).to_string()))
+                .set("bootstrap.servers", "127.0.0.1:9092")
+                .set("enable.partition.eof", "false")
+                .set("session.timeout.ms", "6000")
+                .set("enable.auto.commit", "true")
+                //.set("statistics.interval.ms", "30000")
+                //.set("auto.offset.reset", "smallest")
+                .create_with_context(DefaultConsumerContext)
+                .expect("Consumer creation failed");
+            let mut topics : Vec<&str> = Vec::new();
+            topics.push("followsq");
+            consumer.subscribe(&topics).unwrap();
+            loop
             {
-                qw+=1;
-                w+=1;
+                let q = match consumer.poll(Duration::from_millis(822)){
+                            None => 
+                            {
+                        
+                            },
+                            Some(Ok(w)) => 
+                            {
+                                sock.send(axum::extract::ws::Message::Text(w.payload_view::<str>().unwrap().unwrap().to_string())).await.unwrap();
+                                consumer.commit_message(&w, CommitMode::Async).unwrap();
+                            },
+                            Some(Err(w)) => 
+                            {
+
+                            }
+                        };
             }
         }
-        r+=&qw.to_string();
-        r+=" (Followed by:";
-        w=0;
-        w+=1;
-        if(s.len()>0)
-        {
-            while w<s.len()
-            {
-                r+=" User ";
-                r+=&s[w].to_string();
-                if w+1<s.len()
-                {
-                    r+=",";
-                }
-                w+=1;
-            }
-        }
-        r+=")\r\n</p>";
-        p+=1;
-    }
-    r+=r#"<p>
-                <form action="/followuser" method="post">
-                    <p><label>
-                        Follow/Unfollow user 
-                        <input type="text" name="followed">
-                    </label></p>
-                    <p><label>
-                        as user
-                        <input type="text" name="follower">
-                    </label></p>
-                    <p><input type="submit" value="Follow/Unfollow"></p>
-                </form></p>
-                <p><a href=/>Index</a></p>
-            </body>
-        </html>
-        "#;
-    response()
-        .await.status(200)
-        .body(Full::from(r))
-        .unwrap()
+    else
+    {
+        let producer: FutureProducer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:9092")
+            .set("message.timeout.ms", "5420")
+            .create()
+            .expect("Producer creation error");
+    loop 
+{
+    let follow : Follow=serde_json::from_str(&sock.recv().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+producer.send(FutureRecord::to("follows").payload(&format!(r#""followerid": {}, "followedid": {}"#, follow.followerid, follow.followedid)[..]).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
 }
+    
+}})
+}
+
 async fn deleteallusers(Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
     sqlx::Executor::execute(&pool, &format!("DELETE  FROM users")[..]).await.unwrap();
@@ -767,140 +1027,76 @@ async fn deleteallusers(Extension(pool): Extension<PgPool>,
         .unwrap()
 }
 
-async fn handlerws(Extension(pool): Extension<PgPool>,ws: WebSocketUpgrade) -> impl IntoResponse {
-    println!("ef");
-    ws.on_upgrade(move |mut sock| async move{
-    while let followedid=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap()
-{
-    let followerid : i32=sock.recv().await.unwrap().unwrap().into_text().unwrap().parse().unwrap();
-println!("{}", followedid);
-println!("{}", followerid);
-    let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut sq : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followerid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut sw : Vec<i32>= sqlx::query(&format!("SELECT follows FROM users WHERE ID = {}", followerid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-    let mut r=0;
-    let mut q=false;
-    let mut w=r.clone();
-    while r<s.len()
-    {
-        if s[r]==followerid
-        {
-            q=true;
-            w=r;
-        }
-        r+=1;
-    }
-    if q==true
-    {
-        s.drain(w..w+1);
-    }
-    else if followerid!=followedid
-    {
-        s.push(followerid);
-    }
-    let mut sm=String::new();
-    sm+="UPDATE users SET followers = '{";
-    r=0;
-    while r<s.len()
-    {
-        sm+=&s[r].to_string();
-        if r+1<s.len()
-        {
-            sm+=",";
-        }
-        r+=1;
-    }
-    sm+="}'";
-    sm+=&format!(" WHERE ID = {}", followedid);
-    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-    let mut r=0;
-    let mut q=false;
-    let mut w=r.clone();
-    while r<sw.len()
-    {
-        if sw[r]==followedid
-        {
-            q=true;
-            w=r;
-        }
-        r+=1;
-    }
-    if q==true
-    {
-        sw.drain(w..w+1);
-    }
-    else if followedid!=followerid
-    {
-        sw.push(followedid);
-    }
-    let mut sm=String::new();
-    sm+="UPDATE users SET follows = '{";
-    r=0;
-    while r<sw.len()
-    {
-        sm+=&sw[r].to_string();
-        if r+1<sw.len()
-        {
-            sm+=",";
-        }
-        r+=1;
-    }
-    sm+="}'";
-    sm+=&format!(" WHERE ID = {}", followerid);
-    sqlx::Executor::execute(&pool, &sm[..]).await.unwrap();
-sock.send(axum::extract::ws::Message::Text(followedid.to_string())).await.unwrap();
-let mut r=String::new();
-println!("{}", followedid);
-let mut s : Vec<i32>= sqlx::query(&format!("SELECT followers FROM users WHERE ID = {}", followedid))
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .get(0);
-        let mut w=0;
-        w+=1;
-        let mut qw=0;
-        if(s.len()>0)
-        {
-            while w<s.len()
-            {
-                qw+=1;
-                w+=1;
+async fn consume(brokers: &str, group_id: &str, topics: &[&str]) {
+    let context = DefaultConsumerContext;
+
+    let consumer: StreamConsumer<DefaultConsumerContext> = ClientConfig::new()
+        .set("group.id", group_id)
+        .set("bootstrap.servers", brokers)
+        .set("enable.partition.eof", "false")
+        .set("session.timeout.ms", "6000")
+        .set("enable.auto.commit", "true")
+        //.set("statistics.interval.ms", "30000")
+        //.set("auto.offset.reset", "smallest")
+        .create_with_context(context)
+        .expect("Consumer creation failed");
+
+    consumer
+        .subscribe(&topics.to_vec())
+        .expect("Can't subscribe to specified topics");
+
+    loop {
+        match consumer.recv().await {
+            Err(e) => println!("Kafka error: {}", e),
+            Ok(m) => {
+                let payload = match m.payload_view::<str>() {
+                    None => "",
+                    Some(Ok(s)) => s,
+                    Some(Err(e)) => {
+                        println!("Error while deserializing message payload: {:?}", e);
+                        ""
+                    }
+                };
+                println!("key: '{:?}', payload: '{}', topic: {}, partition: {}, offset: {}, timestamp: {:?}",
+                      m.key(), payload, m.topic(), m.partition(), m.offset(), m.timestamp());
+                
+                consumer.commit_message(&m, CommitMode::Async).unwrap();
             }
-        }
-        r+=&qw.to_string();
-if(qw>0)
-        {
-        r+=" (Followed by:";
-        w=0;
+        };
+    }
 }
-        w+=1;
-        if(s.len()>0)
-        {
-            while w<s.len()
-            {
-                r+=" User ";
-                r+=&s[w].to_string();
-                if w+1<s.len()
-                {
-                    r+=",";
-                }
-                w+=1;
-            }if(qw>0)
-        {
-r+=")";
-        }}
-sock.send(axum::extract::ws::Message::Text(r)).await.unwrap();
-}})
+
+async fn produce(brokers: &str, topic_name: &str) {
+    let producer: &FutureProducer = &ClientConfig::new()
+        .set("bootstrap.servers", brokers)
+        .set("message.timeout.ms", "50")
+        .create()
+        .expect("Producer creation error");
+
+    // This loop is non blocking: all messages will be sent one after the other, without waiting
+    // for the results.
+    let futures = (0..5)
+        .map(|i| async move {
+            // The send operation on the topic returns a future, which will be
+            // completed once the result or failure from Kafka is received.
+            let delivery_status = producer
+                .send(
+                    FutureRecord::to(topic_name)
+                        .payload(&format!("Message {}", i))
+                        .key(&format!("Key {}", i))
+                        ,
+                    Duration::from_secs(0),
+                )
+                .await;
+
+            // This will be executed when the result is received.
+            println!("Delivery status for message {} received", i);
+            delivery_status
+        })
+        .collect::<Vec<_>>();
+
+    // This loop will wait until all delivery statuses have been received.
+    for future in futures {
+        println!("Future completed. Result: {:?}", future.await);
+    }
 }
