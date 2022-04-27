@@ -14,7 +14,6 @@ use sqlx::postgres::types::PgTimeTz;
 use postgres::types::Type;
 use axum::extract::Form;
 
-
 #[derive(Serialize, Deserialize)]
 struct User
 {
@@ -118,7 +117,7 @@ async fn pkgbg() -> impl IntoResponse{
 
 #[tokio::main]
 async fn main() {
-    let db_connection_str = std::env::var("DATABASE_URL")
+    let db_connection_str = std::env::var("PATH")
         .unwrap_or_else(|_| "postgres://cqbsfwjelclezx:34504970f333d727a191365905486ac48abd898e1ad3d975b002890ea67a6f24@ec2-52-48-159-67.eu-west-1.compute.amazonaws.com:5432/d6jquit4idoppv".to_string());
     let pool = PgPoolOptions::new()
         .max_connections(5)
@@ -239,9 +238,6 @@ async fn makedummyuser(
 
 async fn getusers(Extension(pool): Extension<PgPool>,
 ) -> impl IntoResponse{
-    let qws = env::var("PORT")
-        .unwrap_or_else(|_| "7878".to_string())
-        .to_string();
     let s = sqlx::query("SELECT ID, username, full_name, created_at, bio FROM users ORDER BY ID")
         .fetch_all(&pool)
         .await
@@ -331,9 +327,9 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     }
 
     r+="</tbody></table>";
-    r+=format!(r#"<script>
+    r+=r#"<script>
 var u;
-var ws = new WebSocket("ws://localhost:{}/ws");
+var ws = new WebSocket("ws://localhost:7878/ws");
 ws.addEventListener("message", sock);
 function sockq(l)
         {{
@@ -357,7 +353,8 @@ document.getElementById("userid").value="";
 document.getElementById("userid").disabled=2;
         document.getElementById("user").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
-        }}"#, qws);
+        }}"#;
+r#"""#;
 let mut p=0;
 while p<s.len()
     {
