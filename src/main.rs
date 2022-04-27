@@ -700,8 +700,8 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     r+="</tbody></table>";
     r+=&format!(r#"<script>
 var u;
-var ws = new WebSocket("wss://axumsersql4.herokuapp.com:{}/ws");
-var ws2 = new WebSocket("wss://axumsersql4.herokuapp.com:{}/ws");
+var ws = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
+var ws2 = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
 
 
 ws2.addEventListener("message", sock);
@@ -722,11 +722,7 @@ document.getElementById("userid").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
         ws.send("3");
 ws2.send("2"); 
-        }}"#, env::var("PORT")
-        .unwrap_or_else(|_| "7878".to_string())
-        .to_string(), env::var("PORT")
-        .unwrap_or_else(|_| "7878".to_string())
-        .to_string())[..];
+        }}"#)[..];
 let mut p=0;
 while p<s.len()
     {
