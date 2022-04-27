@@ -700,8 +700,8 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     r+="</tbody></table>";
     r+=&format!(r#"<script>
 var u;
-var ws = new WebSocket("ws://localhost:{}/ws");
-var ws2 = new WebSocket("ws://localhost:{}/ws");
+var ws = new WebSocket("ws://axumsersql4.herokuapp.com:{}/ws");
+var ws2 = new WebSocket("ws://axumsersql4.herokuapp.com:{}/ws");
 
 
 ws2.addEventListener("message", sock);
