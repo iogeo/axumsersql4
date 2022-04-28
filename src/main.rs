@@ -250,7 +250,7 @@ async fn main() {
     let mut l=0;
     loop 
     {
-        let q = match consumer.poll(Duration::from_millis(22)){
+        let q = match consumer.poll(Duration::from_millis(222)){
                     None => 
                     {
                         let mut lw=0;
@@ -401,135 +401,135 @@ async fn main() {
                         else
                         {
                             let mut lw=0;
-                        let mut qlw=0;
-                        s+="SELECT followers FROM users WHERE ID = 3\r\n";
-                        let mut wsq : String = s.clone();
-                        let mut r = sqlx::query(&wsq).fetch_many(&pool);
-                        while lw<l
-                        {
-                            qlw=lw/3;
-                                let mut sqw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
-                                lw+=1;
-                                let mut sq : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
-                                lw+=1;
-                                let mut sw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
-                                lw+=1;
-                                sm+="UPDATE users SET followers = '{";
-                                let mut followerid = fs[qlw].followerid;
-                                let mut followedid = fs[qlw].followedid;
-                                let mut r=0;
-                                let mut q=false;
-                                let mut w=r.clone();
-                                while r<sqw.len()
-                                {
-                                    if sqw[r]==followerid
+                            let mut qlw=0;
+                            s+="SELECT followers FROM users WHERE ID = 3\r\n";
+                            let mut wsq : String = s.clone();
+                            let mut r = sqlx::query(&wsq).fetch_many(&pool);
+                            while lw<l
+                            {
+                                qlw=lw/3;
+                                    let mut sqw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                    lw+=1;
+                                    let mut sq : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                    lw+=1;
+                                    let mut sw : Vec<i32>= r.next().await.unwrap().unwrap().right().unwrap().get(0);
+                                    lw+=1;
+                                    sm+="UPDATE users SET followers = '{";
+                                    let mut followerid = fs[qlw].followerid;
+                                    let mut followedid = fs[qlw].followedid;
+                                    let mut r=0;
+                                    let mut q=false;
+                                    let mut w=r.clone();
+                                    while r<sqw.len()
                                     {
-                                        q=true;
-                                        w=r;
+                                        if sqw[r]==followerid
+                                        {
+                                            q=true;
+                                            w=r;
+                                        }
+                                        r+=1;
                                     }
-                                    r+=1;
-                                }
-                                if q==true
-                                {
-                                    sqw.drain(w..w+1);
-                                }
-                                else if followerid!=followedid
-                                {
-                                    sqw.push(followerid);
-                                }
-                                let mut r=0;
-                                let mut wsqw : Vec<i32> = Vec::new();
-                                while r<sqw.len()
-                                {
-                                    wsqw.push(sqw[r]);
-                                    r+=1;
-                                }
-                                let mut smq : String = String::new();
-                                smq+=&(&wsqw.len()-1).to_string();
-                                smq+=" (Followed by: ";
-                                r+=1;
-                                let mut r=0;
-                                r+=1;
-                                while r<wsqw.len()
-                                {
-                                    smq+="User ";
-                                    smq+=&wsqw[r].to_string();
-                                    if r+1<wsqw.len()
+                                    if q==true
                                     {
-                                        smq+=", ";
+                                        sqw.drain(w..w+1);
                                     }
-                                    r+=1;
-                                }
-                                let mut r=0;
-                                while r<sqw.len()
-                                {
-                                    sm+=&sqw[r].to_string();
-                                    if r+1<sqw.len()
+                                    else if followerid!=followedid
                                     {
-                                        sm+=",";
+                                        sqw.push(followerid);
                                     }
-                                    r+=1;
-                                }
-                                smq+=")";
-                                sm+="}'";
-                                sm+=&format!(" WHERE ID = {} ;\r\n", followedid);
-                                let mut r=0;
-                                let mut q=false;
-                                let mut w=r.clone();
-                                while r<sw.len()
-                                {
-                                    if sw[r]==followedid
+                                    let mut r=0;
+                                    let mut wsqw : Vec<i32> = Vec::new();
+                                    while r<sqw.len()
                                     {
-                                        q=true;
-                                        w=r;
+                                        wsqw.push(sqw[r]);
+                                        r+=1;
                                     }
+                                    let mut smq : String = String::new();
+                                    smq+=&(&wsqw.len()-1).to_string();
+                                    smq+=" (Followed by: ";
                                     r+=1;
-                                }
-                                if q==true
-                                {
-                                    sw.drain(w..w+1);
-                                }
-                                else if followedid!=followerid
-                                {
-                                    sw.push(followedid);
-                                }
+                                    let mut r=0;
+                                    r+=1;
+                                    while r<wsqw.len()
+                                    {
+                                        smq+="User ";
+                                        smq+=&wsqw[r].to_string();
+                                        if r+1<wsqw.len()
+                                        {
+                                            smq+=", ";
+                                        }
+                                        r+=1;
+                                    }
+                                    let mut r=0;
+                                    while r<sqw.len()
+                                    {
+                                        sm+=&sqw[r].to_string();
+                                        if r+1<sqw.len()
+                                        {
+                                            sm+=",";
+                                        }
+                                        r+=1;
+                                    }
+                                    smq+=")";
+                                    sm+="}'";
+                                    sm+=&format!(" WHERE ID = {} ;\r\n", followedid);
+                                    let mut r=0;
+                                    let mut q=false;
+                                    let mut w=r.clone();
+                                    while r<sw.len()
+                                    {
+                                        if sw[r]==followedid
+                                        {
+                                            q=true;
+                                            w=r;
+                                        }
+                                        r+=1;
+                                    }
+                                    if q==true
+                                    {
+                                        sw.drain(w..w+1);
+                                    }
+                                    else if followedid!=followerid
+                                    {
+                                        sw.push(followedid);
+                                    }
                                 
-                                sm+="UPDATE users SET follows = '{";
-                                r=0;
-                                while r<sw.len()
-                                {
-                                    sm+=&sw[r].to_string();
-                                    if r+1<sw.len()
+                                    sm+="UPDATE users SET follows = '{";
+                                    r=0;
+                                    while r<sw.len()
                                     {
-                                        sm+=",";
+                                        sm+=&sw[r].to_string();
+                                        if r+1<sw.len()
+                                        {
+                                            sm+=",";
+                                        }
+                                        r+=1;
                                     }
-                                    r+=1;
+                                    println!("{}", smq);
+                                    wq.push(Followq{followedid: followedid, followers: smq.clone()});
+                                    sm+="}'";
+                                    sm+=&format!(" WHERE ID = {} ;\r\n", followerid);
                                 }
-                                println!("{}", smq);
-                                wq.push(Followq{followedid: followedid, followers: smq.clone()});
-                                sm+="}'";
-                                sm+=&format!(" WHERE ID = {} ;\r\n", followerid);
-                            }
-                            sm+="UPDATE users SET ID = 3 WHERE ID = 3\r\n";
-                                    println!("{}", &((sm)[..]));
-                                let mut sl=sm.clone();
-                                let mut q=sqlx::Executor::execute_many(&pool, &(sl[..]));
-                                let mut r=0;
-                                println!("{}", &wq.len());
-                                while r<wq.len()
-                                {
-                                    println!("{:?}", &wq[r].followers);
-                                    producerq.send(FutureRecord::to("followsq").payload(&format!(r#""followedid":{}, "followers":"{}""#, wq[r].followedid, wq[r].followers)).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
-                                    r+=1;
-                                }
+                                sm+="UPDATE users SET ID = 3 WHERE ID = 3\r\n";
+                                        println!("{}", &((sm)[..]));
+                                    let mut sl=sm.clone();
+                                    let mut q=sqlx::Executor::execute_many(&pool, &(sl[..]));
+                                    let mut r=0;
+                                    println!("{}", &wq.len());
+                                    while r<wq.len()
+                                    {
+                                        println!("{:?}", &wq[r].followers);
+                                        producerq.send(FutureRecord::to("followsq").payload(&format!(r#""followedid":{}, "followers":"{}""#, wq[r].followedid, wq[r].followers)).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
+                                        r+=1;
+                                    }
                                 
-                        let mut qw=q.next().await.unwrap().unwrap();
+                            let mut qw=q.next().await.unwrap().unwrap();
                         
-                        l=0;
-                        wq.clear();
-                        s.clear();
-                        fs.clear();
-                        sm.clear();
+                            l=0;
+                            wq.clear();
+                            s.clear();
+                            fs.clear();
+                            sm.clear();
                         }
                     },
                     Some(Err(w)) => 
@@ -701,16 +701,19 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     }
 
     r+="</tbody></table>";
-    r+=r#"<script>
+    let mut p=String::new();
+    p+="wss://axumsersql4.herokuapp.com/ws";
+    env::var("PORT").unwrap_or_else(|_| {p="ws://localhost/ws".to_string(); "80".to_string()});
+    r+=&format!(r#"<script>
 var u;
-var ws = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
-var ws2 = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
+var ws = new WebSocket("{}");
+var ws2 = new WebSocket("{}2");
 
 
 ws2.addEventListener("message", sock);
 function sock(l)
         {{   document.getElementById("wq").innerHTML=l.data;         
-            var w=JSON.parse('{'+l.data+'}');
+            var w=JSON.parse('{{'+l.data+'}}');
             
 
             document.getElementById("w"+w.followedid).innerText=w.followers;
@@ -723,7 +726,7 @@ document.getElementById("userid").value="";
 document.getElementById("userid").disabled=2;
         document.getElementById("user").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
-        }}"#;
+        }}"#, p, p)[..];
 let mut p=0;
 while p<s.len()
     {
