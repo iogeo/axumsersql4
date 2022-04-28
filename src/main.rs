@@ -194,7 +194,9 @@ async fn main() {
         "/deleteallusers", get(deleteallusers))
         .layer(Extension(pool2))
         .route(
-        "/ws", get(handlerws))
+        "/ws", get(handlerws2))
+        .route(
+        "/ws2", get(handlerws))
         .route(
         "/qw.js", get(qwjs))
         .route(
@@ -214,7 +216,7 @@ async fn main() {
         .route(
         "/pkg/webgl_bg.wasm", get(pkgbg));
     let q = env::var("PORT")
-        .unwrap_or_else(|_| "7878".to_string())
+        .unwrap_or_else(|_| "80".to_string())
         .to_string();
     let brokers = "127.0.0.1:9092";
     let topic = "follows";
@@ -248,7 +250,7 @@ async fn main() {
     let mut l=0;
     loop 
     {
-        let q = match consumer.poll(Duration::from_millis(822)){
+        let q = match consumer.poll(Duration::from_millis(22)){
                     None => 
                     {
                         let mut lw=0;
@@ -532,7 +534,8 @@ async fn main() {
                     },
                     Some(Err(w)) => 
                     {
-
+                        println!("Bad.");
+                        consumer.poll(Duration::from_millis(8422)).unwrap();
                     }
                 };
     }
@@ -698,16 +701,16 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     }
 
     r+="</tbody></table>";
-    r+=&format!(r#"<script>
+    r+=r#"<script>
 var u;
-var ws = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
-var ws2 = new WebSocket("wss://axumsersql4.herokuapp.com/ws");
+var ws = new WebSocket("ws://localhost/ws");
+var ws2 = new WebSocket("ws://localhost/ws2");
 
 
 ws2.addEventListener("message", sock);
 function sock(l)
         {{   document.getElementById("wq").innerHTML=l.data;         
-            var w=JSON.parse('{{'+l.data+'}}');
+            var w=JSON.parse('{'+l.data+'}');
             
 
             document.getElementById("w"+w.followedid).innerText=w.followers;
@@ -720,9 +723,7 @@ document.getElementById("userid").value="";
 document.getElementById("userid").disabled=2;
         document.getElementById("user").disabled=2;
         document.getElementById("qw").innerText="Logged in as User "+u;
-        ws.send("3");
-ws2.send("2"); 
-        }}"#)[..];
+        }}"#;
 let mut p=0;
 while p<s.len()
     {
@@ -953,10 +954,7 @@ struct FollowUserIDs{
 async fn handlerws(ws: WebSocketUpgrade) -> impl IntoResponse {
 
         ws.on_upgrade(move |mut sock| async move{
-        let e=sock.recv().await.unwrap().unwrap().into_text().unwrap();
-        println!("{}", e);
-        if e=="2"
-        {
+        
             let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
                 .set("group.id", &("follow".to_owned()+&rand::thread_rng().gen_range(324..324324824 as i32).to_string()))
                 .set("bootstrap.servers", "127.0.0.1:9092")
@@ -988,9 +986,13 @@ async fn handlerws(ws: WebSocketUpgrade) -> impl IntoResponse {
                             }
                         };
             }
-        }
-    else
-    {
+    })
+}
+
+async fn handlerws2(ws: WebSocketUpgrade) -> impl IntoResponse {
+
+        ws.on_upgrade(move |mut sock| async move{
+        
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", "127.0.0.1:9092")
             .set("message.timeout.ms", "5420")
@@ -999,10 +1001,11 @@ async fn handlerws(ws: WebSocketUpgrade) -> impl IntoResponse {
     loop 
 {
     let follow : Follow=serde_json::from_str(&sock.recv().await.unwrap().unwrap().into_text().unwrap()).unwrap();
+    println!(r#""followerid": {}, "followedid": {}"#, follow.followerid, follow.followedid);
 producer.send(FutureRecord::to("follows").payload(&format!(r#""followerid": {}, "followedid": {}"#, follow.followerid, follow.followedid)[..]).key(&format!("2")), Duration::from_secs(0)).await.unwrap();
 }
     
-}})
+})
 }
 
 async fn deleteallusers(Extension(pool): Extension<PgPool>,
