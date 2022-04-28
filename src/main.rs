@@ -703,8 +703,8 @@ async fn getusers(Extension(pool): Extension<PgPool>,
     r+="</tbody></table>";
     r+=r#"<script>
 var u;
-var ws = new WebSocket("ws://localhost/ws");
-var ws2 = new WebSocket("ws://localhost/ws2");
+var ws = new WebSocket("wss://localhost/ws");
+var ws2 = new WebSocket("wss://localhost/ws2");
 
 
 ws2.addEventListener("message", sock);
