@@ -227,7 +227,7 @@ async fn main() {
     println!("2none");
     let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
         .set("group.id", "follower")
-        .set("bootstrap.servers", "https://kafkared.herokuapp.com:9092")
+        .set("bootstrap.servers", "127.0.0.1:9092")
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "6000")
         .set("enable.auto.commit", "true")
@@ -236,7 +236,7 @@ async fn main() {
         .create_with_context(DefaultConsumerContext)
         .expect("Consumer creation failed");
     let producerq: FutureProducer = ClientConfig::new()
-        .set("bootstrap.servers", "https://kafkared.herokuapp.com:9092")
+        .set("bootstrap.servers", "127.0.0.1:9092")
         .set("message.timeout.ms", "5420")
         .create()
         .expect("Producer creation error");
@@ -708,14 +708,11 @@ async fn getusers(Extension(pool): Extension<PgPool>,
 var u;
 var ws = new WebSocket("{}");
 var ws2 = new WebSocket("{}2");
-
-
 ws2.addEventListener("message", sock);
 function sock(l)
         {{   document.getElementById("wq").innerHTML=l.data;         
             var w=JSON.parse('{{'+l.data+'}}');
             
-
             document.getElementById("w"+w.followedid).innerText=w.followers;
         }};
 user.addEventListener("mouseup", userq);
@@ -960,7 +957,7 @@ async fn handlerws(ws: WebSocketUpgrade) -> impl IntoResponse {
         
             let consumer: BaseConsumer<DefaultConsumerContext> = ClientConfig::new()
                 .set("group.id", &("follow".to_owned()+&rand::thread_rng().gen_range(324..324324824 as i32).to_string()))
-                .set("bootstrap.servers", "https://kafkared.herokuapp.com:9092")
+                .set("bootstrap.servers", "127.0.0.1:9092")
                 .set("enable.partition.eof", "false")
                 .set("session.timeout.ms", "6000")
                 .set("enable.auto.commit", "true")
@@ -997,7 +994,7 @@ async fn handlerws2(ws: WebSocketUpgrade) -> impl IntoResponse {
         ws.on_upgrade(move |mut sock| async move{
         
         let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", "https://kafkared.herokuapp.com:9092")
+            .set("bootstrap.servers", "127.0.0.1:9092")
             .set("message.timeout.ms", "5420")
             .create()
             .expect("Producer creation error");
